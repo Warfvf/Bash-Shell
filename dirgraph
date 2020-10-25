@@ -1,0 +1,145 @@
+#! /bin/bash
+
+POSIXLY_CORRECT=yes
+NORM=0
+	if [ $# -gt 4 ]; then #overuje pocet argumentu
+		echo "Wrong quantity of arguments" >&2
+		exit 1
+	fi
+
+	if [ "$1" == "-i" ]; then #overuje spravnost zadani argumentu -i a FILE_ERE
+		if [ $# -gt 1 ]; then
+			FILE_ERE=$2
+			shift 2
+		else
+			echo "Missing argument" >&2
+			exit 1
+		fi
+	fi
+	
+	if [[ $1 == "-n" ]]; then #nastavuje normalizaci pokud byl zadan prepinac	
+	NORM=1
+	shift
+	fi
+
+	if [[ -d $1 && -n $1 && -r $1 ]]; then #nastavuje adresar pro zkoumani
+		DIR=$1
+		echo "Root directory: $1"
+	elif [ ! -d $1 ]; then
+		echo "$1 is not a directory" >&2
+		exit 1
+	elif [ ! -r $1 ]; then
+		echo "Permission to $1 is denied" >&2
+		exit 1
+	fi	
+	
+	if [ -z $1 ]; then #nastavuje aktualni adresar jako adresar pro zkoumani
+	DIR=`pwd`
+	echo "Root directory: $DIR"
+	fi
+
+	if [ -n "$FILE_ERE" ]; then
+		if echo "$DIR" | egrep -q "$FILE_ERE"; then
+	echo "FILE_ERE covers root directory" >&2	
+	exit 1
+		fi
+	fi
+
+NF=0 #pocet souboru
+ND=0 #pocet adresaru
+Perm_Denied_F=0 #promenna pro vypis chyby Permission denied
+Perm_Denied_D=0 #promenna pro vypis chyby Permission denied
+h=(0 0 0 0 0 0 0 0 0)
+H=('' '' '' '' '' '' '' '' '')
+
+for item in `find $DIR 2>/dev/null`; do
+
+	if [ -n "$FILE_ERE" ]; then
+		if echo "$item" | egrep -q "$FILE_ERE"; then
+		continue
+		fi
+	fi
+	if [[ ! -r $item  && -d $item ]]; then #vypis chyby Permission denied pro adresare
+	let Perm_Denied_D+=1
+		
+	elif [ -f $item ]; then #hledani souboru
+		let NF+=1
+ 		#zkoumani pomeru 	
+		if [ `stat -c %s $item` -lt 100 ]; then
+			H1=$H1"#"
+			let h[0]++	
+		elif [ `stat -c %s $item` -lt 1024 ]; then
+			H2=$H2"#"	
+			let h[1]++	
+		elif [ `stat -c %s $item` -lt 10240 ]; then
+			H3=$H3"#"	
+			let h[2]++	
+		elif [ `stat -c %s $item` -lt 102400 ]; then
+			H4=$H4"#"	
+			let h[3]++	
+		elif [ `stat -c %s $item` -lt 1048576 ]; then
+			H5=$H5"#"	
+			let h[4]++	
+		elif [ `stat -c %s $item` -lt 10485760 ]; then
+			H6=$H6"#"	
+			let h[5]++	
+		elif [ `stat -c %s $item` -lt 104857600 ]; then
+			H7=$H7"#"	
+			let h[6]++	
+		elif [ `stat -c %s $item` -lt 1073741824 ]; then
+			H8=$H8"#"	
+			let h[7]++	
+		elif [ `stat -c %s $item` -ge 1073741824 ]; then
+			H9=$H9"#"	
+			let h[8]++	
+		fi
+	elif [ -d $item ]; then #hledani adresaru
+		let ND+=1	
+	fi
+	done
+################### N O R M A L I Z A C E ###########################
+	MAX=-1
+
+	if [ $NORM -eq 1 ]; then #normalizace
+		if test -t 1; then #sirka terminalu-1-12
+		Sirka=$((`tput cols`-13))		
+		else #67=79-12, kde 12 je sirka "  <100 B  : " atd. 
+		Sirka=67
+		fi
+		for x in ${h[@]}; do
+			if [ $MAX -lt $x ]; then
+			MAX=$x
+			fi
+		done
+		
+		if [ $MAX -gt $Sirka ]; then
+			for x in {0..8}; do
+				h[$x]=$(( ${h[$x]} * $Sirka / $MAX ))
+				
+			done
+		fi
+	fi
+for x in {0..8}; do
+		#for y in {0..h[$x]};do
+		for (( y=0; y<h[x]; y++ )); do
+		H[$x]=${H[$x]}"#"
+		done
+done
+
+#####################################################################
+echo "Directories: $ND" #vypis reportu o poctu adresaru
+echo "All files: $NF" #vypis reportu o poctu souboru
+echo "  <100 B  : ${H[0]}" #vypis histogramu
+echo "  <1 KiB  : ${H[1]}" #vypis histogramu
+echo "  <10  KiB: ${H[2]}" #vypis histogramu
+echo "  <100 KiB: ${H[3]}" #vypis histogramu
+echo "  <1 MiB  : ${H[4]}" #vypis histogramu
+echo "  <10 MiB : ${H[5]}" #vypis histogramu
+echo "  <100 MiB: ${H[6]}" #vypis histogramu
+echo "  <1 GiB  : ${H[7]}" #vypis histogramu
+echo "  >=1 GiB : ${H[8]}" #vypis histogramu
+	
+	if [ $Perm_Denied_D -ne 0 ]; then
+		echo "Permission was denied for directories $Perm_Denied_D times" >&2
+		exit 1
+	fi
